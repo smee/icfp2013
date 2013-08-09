@@ -11,7 +11,8 @@
 (def url "http://icfpc2013.cloudapp.net")
 (def paths #{"myproblems", "train", "eval", "guess"})
 (def api-key "0149QA5D2p0BwWJlreVjrkKOeszOaTyYxYRBcifDvpsH1H")
-
+(def op1 #{'not 'shl1 'shr1 'shr4 'shr16})
+(def op2 #{'and 'or 'xor 'plus})
 (defn- gen-uri [path]
   (str url "/" path "?auth=" api-key))
 (defn post [path body] 
@@ -42,18 +43,18 @@
 
 ;;;;;;;;;;; metadata (size of program etc)
 
-(defn |.| [p]
+(defn |p| [p]
   (cond 
     (number? p) 1
     (symbol? p) 1
     (= 'if0 (first p)) (reduce + 1 (map size (rest p)))
     (= 'fold (first p)) (reduce + 1 (map size (rest p)))
     (= 'lambda (first p)) (+ 1 (size (last p)))
-    (some #{'not 'shl1 'shr1 'shr4 'shr16} p) (+ 1 (size (second p)))
-    (some #{'and 'or 'xor 'plus} p) (+ 1 (size (second p)) (size (last p)))))
+    (some op1 p) (+ 1 (size (second p)))
+    (some op2 p) (+ 1 (size (second p)) (size (last p)))))
 
 (defn op [p]
-  (set (map name (filter #{'if0 'fold 'not 'shl1 'shr1 'shr4 'shr16 'and 'or 'xor 'plus} (flatten p)))))
+  (set (map name (filter (-> #{'if0 'fold} (into op1) (into op2)) (flatten p)))))
 
 (defn operators [p]
   (if (clojure.core/and (seq? p) 
