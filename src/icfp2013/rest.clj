@@ -3,8 +3,8 @@
   (:require [clj-http.client :as http]
             [cheshire.core   :as json]
             [clojure.string  :as s]
-            [clojure.core.match :refer [match]])
-  (:import java.net.URLEncoder))
+            [clojure.set :refer [intersection]]
+            [clojure.math.combinatorics :as combo]))
 
 
 ;;;;;; REST interface
@@ -43,7 +43,7 @@
 
 ;;;;;;;;;;; metadata (size of program etc)
 
-(defn |p| [p]
+(defn size [p]
   (cond 
     (number? p) 1
     (symbol? p) 1
@@ -62,6 +62,7 @@
                         (= 0 (nth p 2)))
     (conj (op (-> p (nth 3) (nth 2))) "tfold")
     (op p)))
+
 ;;;;;;;;;;; eval generated \BV programs
 
 (defn fold [n start lambda]
@@ -105,6 +106,27 @@
 
 (defn eval-program [program argument]
   (clojure.core/eval (list (clojure.walk/postwalk rewrite program) argument)))
+
+;;;;;;;;;;;;;; generate programs
+
+(defn enumerate-valid-programs [size valid-ops symbols]
+  (cond (contains? valid-ops "tfold") ;;special case
+    (list 'fold '... 0 (list 'lambda (list 'acc 'y) '...)) ;;; |...|+|...|=size-2
+    (= 1 size) (conj symbols 0 1) ;; |p| is 1, meaning we can only return literals
+    (= 2 size) (for [op (intersection valid-ops op1), constant (conj symbols 0 1)] (list op constant) )
+    (= 3 size) (concat
+                 ;op2 and two constants
+                 (for [op (intersection valid-ops op2), c1 (conj symbols 0 1), c2 (conj symbols 0 1)] (list op c1 c2) )
+                 ;op2 of op1 and one constant
+                 (apply concat (for [op (intersection valid-ops op2), expr (enumerate-valid-programs 2 valid-ops symbols), c (conj symbols 0 1)] 
+                                 (list (list op expr c)
+                                       (list op c expr)))))
+;    (= 4 size) (concat
+;                  ;if0
+;                  ;op2
+;                  ;op1
+;                  (for [op (intersection valid-ops op1), expr (enumerate-valid-programs (dec size) valid-ops symbols)] ))
+     ))
 
 (comment
   (let [x (read-string "(lambda (x) (if0 x 1 0))")] 
