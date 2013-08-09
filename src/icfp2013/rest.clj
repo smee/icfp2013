@@ -40,7 +40,27 @@
 (defn all-problems []
   (post "myproblems" nil))
 
+;;;;;;;;;;; metadata (size of program etc)
 
+(defn |.| [p]
+  (cond 
+    (number? p) 1
+    (symbol? p) 1
+    (= 'if0 (first p)) (reduce + 1 (map size (rest p)))
+    (= 'fold (first p)) (reduce + 1 (map size (rest p)))
+    (= 'lambda (first p)) (+ 1 (size (last p)))
+    (some #{'not 'shl1 'shr1 'shr4 'shr16} p) (+ 1 (size (second p)))
+    (some #{'and 'or 'xor 'plus} p) (+ 1 (size (second p)) (size (last p)))))
+
+(defn op [p]
+  (set (map name (filter #{'if0 'fold 'not 'shl1 'shr1 'shr4 'shr16 'and 'or 'xor 'plus} (flatten p)))))
+
+(defn operators [p]
+  (if (clojure.core/and (seq? p) 
+                        (= 'fold (first p))
+                        (= 0 (nth p 2)))
+    (conj (op (-> p (nth 3) (nth 2))) "tfold")
+    (op p)))
 ;;;;;;;;;;; eval generated \BV programs
 
 (defn fold [n start lambda]
