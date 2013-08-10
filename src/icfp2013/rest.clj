@@ -174,13 +174,19 @@
 (defn maybe-valid? [program inputs outputs]
   (every? true? (map #(= %2 (program %1)) inputs outputs)))
 
+(defn hex-str->long [^String s]
+  (.longValue (BigInteger. (.substring s 2) 16)))
+
 (defn candidate-programs [{:keys [size operators id]}]
   (let [ops (set (map symbol operators)) _ (println "using ops" ops)
         size (dec size)
         programs (enumerate-valid-programs size ops ['x]) _ (def programs programs)
-        inputs [0 1 2 3 4 0xFF 0xFFFFFFFF -1 0x0000aa0000aa0000] _ (def inputs inputs)
+        r (java.util.Random.)
+        inputs (concat [0 1 2 3 4 0xFF 0xFFFFFFFF -1 0x0000aa0000aa0000
+                0x123456789abcdeff
+                -144115188075855872] (repeatedly 200 #(.nextLong r))) _ (def inputs inputs)
         {:keys [status outputs message]} (eval {:id id :arguments (map #(java.lang.Long/toHexString %) inputs)}) _ (println outputs)
-        outputs (map #(.longValue (BigInteger. (.substring ^String % 2) 16)) outputs)] (println status message size ops (count programs)) (def outputs outputs) 
+        outputs (map hex-str->long outputs)] (println status message size ops #_(count programs)) (def outputs outputs) 
     (keep (fn [[text p]] (when (maybe-valid? p inputs outputs) text)) (pmap (juxt identity compile-program) programs))))
 
 (defn try-to-solve [task]
@@ -188,7 +194,7 @@
         p (first candidates)]
     (if (not-empty candidates)
       (do
-        (println "using program 1 of" (count candidates) ": " p )
+        ;(println "there are" (count candidates) "candidates ")
         ((juxt println guess) {:id (:id task) :program (str "(lambda (x) " p ")")}))
       candidates)))
 
