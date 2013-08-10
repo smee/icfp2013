@@ -200,4 +200,13 @@
 
 (comment
   (let [x (read-string "(lambda (x) (if0 x 1 0))")] 
-    (eval-program x 0)))
+    (eval-program x 0))
+  (def ps (all-problems)) 
+  (def easy (filter #(clojure.core/and (= 8 (:size %)) (nil? (:solved %)) ) ps))
+  (pp easy)
+  
+  (doseq [task easy] (println (try-to-solve task)) (flush))
+  (e)
+  (restart)
+  
+  )
