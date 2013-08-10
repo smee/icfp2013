@@ -142,39 +142,46 @@
 (defn enumerate-valid-programs [size valid-ops symbols]
   (if (= 1 size) 
     (conj symbols 0 1)
-    (concat
-      (when (contains? valid-ops 'if0) 
-        (for [[n1 n2 n3] (stirling-ish-combinations (dec size) 3),
-              expr (enumerate-valid-programs n1 valid-ops symbols)
-              then (enumerate-valid-programs n2 valid-ops symbols)
-              else (enumerate-valid-programs n3 valid-ops symbols)]
-          (list 'if0 expr then else)))
-      (when (contains? valid-ops 'fold) 
-        (for [[n1 n2 n3] (stirling-ish-combinations (- size 2) 3),
-              e1 (enumerate-valid-programs n1 (disj valid-ops 'fold) symbols)
-              e2 (enumerate-valid-programs n2 (disj valid-ops 'fold) symbols)
-              e3 (enumerate-valid-programs n3 (disj valid-ops 'fold) symbols)]
-          (list 'fold e1 e2 (list 'lambda (list 'acc 'y) e3))))
-      (for [op (intersection valid-ops op2)
-            [n1 n2] (stirling-ish-combinations (dec size) 2),
-            p1 (enumerate-valid-programs n1 valid-ops symbols),
-            p2 (enumerate-valid-programs n2 valid-ops symbols)]
-        (list op p1 p2))
-      (for [op (intersection valid-ops op1),
-            p (enumerate-valid-programs (dec size) valid-ops symbols),]
-        (list op p)))))
+    (let [folds (when (contains? valid-ops 'tfold) 
+                  (for [[n1 n2] (stirling-ish-combinations (- size 3) 2),
+                        e1 (enumerate-valid-programs n1 (disj valid-ops 'tfold) symbols)
+                        e2 (enumerate-valid-programs n2 (disj valid-ops 'tfold) (conj symbols 'acc 'y))]
+                    (list 'fold e1 0 (list 'lambda (list 'acc 'y) e2))))
+          valid-ops (disj valid-ops 'tfold)]
+      (concat
+        folds
+        (when (contains? valid-ops 'if0) 
+          (for [[n1 n2 n3] (stirling-ish-combinations (dec size) 3),
+                expr (enumerate-valid-programs n1 valid-ops symbols)
+                then (enumerate-valid-programs n2 valid-ops symbols)
+                else (enumerate-valid-programs n3 valid-ops symbols)]
+            (list 'if0 expr then else)))
+        (when (contains? valid-ops 'fold) 
+          (for [[n1 n2 n3] (stirling-ish-combinations (- size 2) 3),
+                e1 (enumerate-valid-programs n1 (disj valid-ops 'fold) symbols)
+                e2 (enumerate-valid-programs n2 (disj valid-ops 'fold) symbols)
+                e3 (enumerate-valid-programs n3 (disj valid-ops 'fold) symbols)]
+            (list 'fold e1 e2 (list 'lambda (list 'acc 'y) e3))))
+        (for [op (intersection valid-ops op2)
+              [n1 n2] (stirling-ish-combinations (dec size) 2),
+              p1 (enumerate-valid-programs n1 valid-ops symbols),
+              p2 (enumerate-valid-programs n2 valid-ops symbols)]
+          (list op p1 p2))
+        (for [op (intersection valid-ops op1),
+              p (enumerate-valid-programs (dec size) valid-ops symbols),]
+          (list op p))))))
 
 (defn maybe-valid? [program inputs outputs]
   (every? true? (map #(= %2 (program %1)) inputs outputs)))
 
 (defn candidate-programs [{:keys [size operators id]}]
-  (let [ops (set (map symbol operators))
+  (let [ops (set (map symbol operators)) _ (println "using ops" ops)
         size (dec size)
         programs (enumerate-valid-programs size ops ['x]) _ (def programs programs)
         inputs [0 1 2 3 4 0xFF 0xFFFFFFFF -1 0x0000aa0000aa0000] _ (def inputs inputs)
         {:keys [status outputs message]} (eval {:id id :arguments (map #(java.lang.Long/toHexString %) inputs)}) _ (println outputs)
-        outputs (map #(.longValue (BigInteger. (.substring % 2) 16)) outputs)] (println status message size ops (count programs)) (def outputs outputs) 
-    (keep (fn [[text p]] (when (maybe-valid? p inputs outputs) text)) (map (juxt identity compile-program) programs))))
+        outputs (map #(.longValue (BigInteger. (.substring ^String % 2) 16)) outputs)] (println status message size ops (count programs)) (def outputs outputs) 
+    (keep (fn [[text p]] (when (maybe-valid? p inputs outputs) text)) (pmap (juxt identity compile-program) programs))))
 
 (defn try-to-solve [task]
   (let [candidates (candidate-programs task)
