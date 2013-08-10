@@ -15,13 +15,29 @@
 (def op2 #{'and 'or 'xor 'plus})
 (defn- gen-uri [path]
   (str url "/" path "?auth=" api-key))
+
+(defonce poster-agent (agent (sorted-set)))
+
 (defn post [path body] 
-  (let [resp (http/post (gen-uri path) 
-                        {:accept :json 
-                         :body (json/encode body) 
-                         :content-type "application/json"})]
-    (when (= 200 (:status resp)) 
-      (json/decode (:body resp)))))
+  (let [answer (promise)] 
+    (send-off poster-agent
+              (fn [times] 
+                (let [now (System/currentTimeMillis)
+                      times (remove #(< % (- now 20000)) times)
+                      n (count times)
+                      oldest (if (> n 0) (apply min times) 0)
+                      sleeping-time (+ 1000 (- 20000 (- now oldest)))] ;let's add a second to the sleep, ping etc.
+                  (when (= n 5) (println "throtteling for" sleeping-time) (Thread/sleep sleeping-time))
+                  (let [resp (http/post (gen-uri path) 
+                                        {:accept :json 
+                                         :body (json/encode body) 
+                                         :content-type "application/json"})]
+                    (deliver answer
+                             (if (= 200 (:status resp)) 
+                               (json/decode (:body resp) true)
+                               resp))
+                    (conj times now)))))
+    @answer))
 
 (defn train [{:keys [size operators] :as body}]
   (post "train" body))
@@ -89,6 +105,9 @@
 (defn and [^long x ^long y]
   (bit-and x y))
 
+(defn or [^long x ^long y]
+  (bit-or x y))
+
 (defn xor [^long x ^long y]
   (bit-xor x y))
 
@@ -104,29 +123,53 @@
         form))
     form))
 
+(defn compile-program [program]
+  (clojure.core/eval (list 'fn ['x] program)))
+
 (defn eval-program [program argument]
   (clojure.core/eval (list (clojure.walk/postwalk rewrite program) argument)))
 
 ;;;;;;;;;;;;;; generate programs
 
-(defn enumerate-valid-programs [size valid-ops symbols]
+(defn enumerate-valid-programs [size valid-ops symbols]; (println size valid-ops symbols)
   (cond (contains? valid-ops "tfold") ;;special case
     (list 'fold '... 0 (list 'lambda (list 'acc 'y) '...)) ;;; |...|+|...|=size-2
     (= 1 size) (conj symbols 0 1) ;; |p| is 1, meaning we can only return literals
-    (= 2 size) (for [op (intersection valid-ops op1), constant (conj symbols 0 1)] (list op constant) )
+    (= 2 size) (for [op (intersection valid-ops op1), constant symbols] (list op constant) )
     (= 3 size) (concat
-                 ;op2 and two constants
-                 (for [op (intersection valid-ops op2), c1 (conj symbols 0 1), c2 (conj symbols 0 1)] (list op c1 c2) )
-                 ;op2 of op1 and one constant
-                 (apply concat (for [op (intersection valid-ops op2), expr (enumerate-valid-programs 2 valid-ops symbols), c (conj symbols 0 1)] 
-                                 (list (list op expr c)
-                                       (list op c expr)))))
+                 ;op2 of two constants
+                 (for [op (intersection valid-ops op2), c1 (conj symbols 0 1), c2 (conj symbols 0 1)] 
+                   (list op c1 c2))
+                 ;op1 and two constants
+                 (for [op (intersection valid-ops op1), expr (enumerate-valid-programs 2 valid-ops symbols)] 
+                   (list op expr)))
 ;    (= 4 size) (concat
 ;                  ;if0
 ;                  ;op2
 ;                  ;op1
 ;                  (for [op (intersection valid-ops op1), expr (enumerate-valid-programs (dec size) valid-ops symbols)] ))
      ))
+
+(defn maybe-valid? [program inputs outputs]
+  (every? true? (map #(= %2 (program %1)) inputs outputs)))
+
+(defn candidate-programs [{:keys [size operators id]}]
+  (let [ops (set (map symbol operators))
+        size (dec size)
+        programs (enumerate-valid-programs size ops ['x]) _ (def programs programs)
+        inputs [0 1 2 3 4 0xFF 0xFFFFFFFF -1 0x0000aa0000aa0000] _ (def inputs inputs)
+        {:keys [status outputs message]} (eval {:id id :arguments (map #(java.lang.Long/toHexString %) inputs)}) _ (println outputs)
+        outputs (map #(.longValue (BigInteger. (.substring % 2) 16)) outputs)] (println status message size ops (count programs)) (def outputs outputs) 
+    (keep (fn [[text p]] (when (maybe-valid? p inputs outputs) text)) (map (juxt identity compile-program) programs))))
+
+(defn try-to-solve [task]
+  (let [candidates (candidate-programs task)
+        p (first candidates)]
+    (if (not-empty candidates)
+      (do
+        (println "using program 1 of " (count candidates) ": " p )
+        ((juxt println guess) {:id (:id task) :program (str "(lambda (x) " p ")")}))
+      candidates)))
 
 (comment
   (let [x (read-string "(lambda (x) (if0 x 1 0))")] 
