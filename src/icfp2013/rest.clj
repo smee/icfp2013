@@ -26,7 +26,7 @@
                       times (remove #(< % (- now 20000)) times)
                       n (count times)
                       oldest (if (> n 0) (apply min times) 0)
-                      sleeping-time (+ 1000 (- 20000 (- now oldest)))] ;let's add a second to the sleep, ping etc.
+                      sleeping-time (+ 5000 (- 20000 (- now oldest)))] ;let's add a second to the sleep, ping etc.
                   (when (= n 5) (println "throtteling for" sleeping-time) (Thread/sleep sleeping-time))
                   (let [resp (http/post (gen-uri path) 
                                         {:accept :json 
@@ -124,7 +124,7 @@
     form))
 
 (defn compile-program [program]
-  (clojure.core/eval (list 'fn ['x] program)))
+  (clojure.core/eval (list 'fn ['x] (clojure.walk/postwalk rewrite program))))
 
 (defn eval-program [program argument]
   (clojure.core/eval (list (clojure.walk/postwalk rewrite program) argument)))
