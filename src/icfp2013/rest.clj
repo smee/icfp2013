@@ -130,25 +130,39 @@
   (clojure.core/eval (list (clojure.walk/postwalk rewrite program) argument)))
 
 ;;;;;;;;;;;;;; generate programs
+(defn stirling-ish-combinations [n k] 
+  (if (= k 1)
+    [[n]]
+    (apply concat 
+           (for [current-n (range 1 (inc (- n (dec k)))) 
+                 :let [combs (stirling-ish-combinations (- n current-n) (dec k))]]  
+             (map #(conj % current-n) combs)))))
+(alter-var-root #'stirling-ish-combinations memoize)
 
-(defn enumerate-valid-programs [size valid-ops symbols]; (println size valid-ops symbols)
-  (cond (contains? valid-ops "tfold") ;;special case
-    (list 'fold '... 0 (list 'lambda (list 'acc 'y) '...)) ;;; |...|+|...|=size-2
-    (= 1 size) (conj symbols 0 1) ;; |p| is 1, meaning we can only return literals
-    (= 2 size) (for [op (intersection valid-ops op1), constant symbols] (list op constant) )
-    (= 3 size) (concat
-                 ;op2 of two constants
-                 (for [op (intersection valid-ops op2), c1 (conj symbols 0 1), c2 (conj symbols 0 1)] 
-                   (list op c1 c2))
-                 ;op1 and two constants
-                 (for [op (intersection valid-ops op1), expr (enumerate-valid-programs 2 valid-ops symbols)] 
-                   (list op expr)))
-;    (= 4 size) (concat
-;                  ;if0
-;                  ;op2
-;                  ;op1
-;                  (for [op (intersection valid-ops op1), expr (enumerate-valid-programs (dec size) valid-ops symbols)] ))
-     ))
+(defn enumerate-valid-programs [size valid-ops symbols]
+  (if (= 1 size) 
+    (conj symbols 0 1)
+    (concat
+      (when (contains? valid-ops 'if0) 
+        (for [[n1 n2 n3] (stirling-ish-combinations (dec size) 3),
+              expr (enumerate-valid-programs n1 valid-ops symbols)
+              then (enumerate-valid-programs n2 valid-ops symbols)
+              else (enumerate-valid-programs n3 valid-ops symbols)]
+          (list 'if0 expr then else)))
+      (when (contains? valid-ops 'fold) 
+        (for [[n1 n2 n3] (stirling-ish-combinations (- size 2) 3),
+              e1 (enumerate-valid-programs n1 (disj valid-ops 'fold) symbols)
+              e2 (enumerate-valid-programs n2 (disj valid-ops 'fold) symbols)
+              e3 (enumerate-valid-programs n3 (disj valid-ops 'fold) symbols)]
+          (list 'fold e1 e2 (list 'lambda (list 'acc 'y) e3))))
+      (for [op (intersection valid-ops op2)
+            [n1 n2] (stirling-ish-combinations (dec size) 2),
+            p1 (enumerate-valid-programs n1 valid-ops symbols),
+            p2 (enumerate-valid-programs n2 valid-ops symbols)]
+        (list op p1 p2))
+      (for [op (intersection valid-ops op1),
+            p (enumerate-valid-programs (dec size) valid-ops symbols),]
+        (list op p)))))
 
 (defn maybe-valid? [program inputs outputs]
   (every? true? (map #(= %2 (program %1)) inputs outputs)))
@@ -167,7 +181,7 @@
         p (first candidates)]
     (if (not-empty candidates)
       (do
-        (println "using program 1 of " (count candidates) ": " p )
+        (println "using program 1 of" (count candidates) ": " p )
         ((juxt println guess) {:id (:id task) :program (str "(lambda (x) " p ")")}))
       candidates)))
 
