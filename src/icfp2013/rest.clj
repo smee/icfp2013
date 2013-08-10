@@ -85,7 +85,7 @@
   (loop [loops 0, acc start]
     (if (= loops 8)
       acc
-      (recur (inc loops) (lambda acc (bit-and 0xff (bit-shift-right n (* 8 loops))))))))
+      (recur (inc loops) (lambda (bit-and 0xff (bit-shift-right n (* 8 loops))) acc)))))
 
 (defn shl1 [^long x]
   (bit-shift-left x 1))
@@ -145,8 +145,8 @@
     (let [folds (when (contains? valid-ops 'tfold) 
                   (for [[n1 n2] (stirling-ish-combinations (- size 3) 2),
                         e1 (enumerate-valid-programs n1 (disj valid-ops 'tfold) symbols)
-                        e2 (enumerate-valid-programs n2 (disj valid-ops 'tfold) (conj symbols 'acc 'y))]
-                    (list 'fold e1 0 (list 'lambda (list 'acc 'y) e2))))
+                        e2 (enumerate-valid-programs n2 (disj valid-ops 'tfold) (conj symbols 'y 'acc))]
+                    (list 'fold e1 0 (list 'lambda (list 'y 'acc) e2))))
           valid-ops (disj valid-ops 'tfold)]
       (concat
         folds
