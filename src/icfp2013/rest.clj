@@ -3,6 +3,7 @@
   (:require [clj-http.client :as http]
             [cheshire.core   :as json]
             [clojure.string  :as s]
+            [clojure.core.match :refer [match]]
             [clojure.set :refer [intersection]]
             [clojure.math.combinatorics :as combo]))
 
@@ -31,6 +32,7 @@
                   (let [resp (http/post (gen-uri path) 
                                         {:accept :json 
                                          :body (json/encode body) 
+                                         :throw-exceptions false
                                          :content-type "application/json"})]
                     (deliver answer
                              (if (= 200 (:status resp)) 
@@ -140,7 +142,7 @@
 (alter-var-root #'stirling-ish-combinations memoize)
 
 (defn enumerate-valid-programs [size valid-ops symbols]
-  (if (= 1 size) 
+  (distinct(if (= 1 size) 
     (conj symbols 0 1)
     (let [folds (when (contains? valid-ops 'tfold) 
                   (for [[n1 n2] (stirling-ish-combinations (- size 3) 2),
@@ -148,28 +150,45 @@
                         e2 (enumerate-valid-programs n2 (disj valid-ops 'tfold) (conj symbols 'y 'acc))]
                     (list 'fold e1 0 (list 'lambda (list 'y 'acc) e2))))
           valid-ops (disj valid-ops 'tfold)]
-      (concat
+      (if (not-empty folds) 
         folds
-        (when (contains? valid-ops 'if0) 
-          (for [[n1 n2 n3] (stirling-ish-combinations (dec size) 3),
-                expr (enumerate-valid-programs n1 valid-ops symbols)
-                then (enumerate-valid-programs n2 valid-ops symbols)
-                else (enumerate-valid-programs n3 valid-ops symbols)]
-            (list 'if0 expr then else)))
-        (when (contains? valid-ops 'fold) 
-          (for [[n1 n2 n3] (stirling-ish-combinations (- size 2) 3),
-                e1 (enumerate-valid-programs n1 (disj valid-ops 'fold) symbols)
-                e2 (enumerate-valid-programs n2 (disj valid-ops 'fold) symbols)
-                e3 (enumerate-valid-programs n3 (disj valid-ops 'fold) symbols)]
-            (list 'fold e1 e2 (list 'lambda (list 'acc 'y) e3))))
-        (for [op (intersection valid-ops op2)
-              [n1 n2] (stirling-ish-combinations (dec size) 2),
-              p1 (enumerate-valid-programs n1 valid-ops symbols),
-              p2 (enumerate-valid-programs n2 valid-ops symbols)]
-          (list op p1 p2))
-        (for [op (intersection valid-ops op1),
-              p (enumerate-valid-programs (dec size) valid-ops symbols),]
-          (list op p))))))
+        (concat
+          (when (contains? valid-ops 'if0) 
+            (for [[n1 n2 n3] (stirling-ish-combinations (dec size) 3),
+                  expr (enumerate-valid-programs n1 valid-ops symbols)
+                  then (enumerate-valid-programs n2 valid-ops symbols)
+                  else (enumerate-valid-programs n3 valid-ops symbols)]
+              (list 'if0 expr then else)))
+          (when (contains? valid-ops 'fold) 
+            (for [[n1 n2 n3] (stirling-ish-combinations (- size 2) 3),
+                  e1 (enumerate-valid-programs n1 (disj valid-ops 'fold) symbols)
+                  e2 (enumerate-valid-programs n2 (disj valid-ops 'fold) symbols)
+                  e3 (enumerate-valid-programs n3 (disj valid-ops 'fold) symbols)]
+              (list 'fold e1 e2 (list 'lambda (list 'acc 'y) e3))))
+          (for [op (intersection valid-ops op2)
+                [n1 n2] (stirling-ish-combinations (dec size) 2),
+                p1 (enumerate-valid-programs n1 valid-ops symbols),
+                p2 (enumerate-valid-programs n2 valid-ops symbols)
+                :let [;_ (println op p1 p2 (= op 'and) (= p1 0) (= p2 0))
+                      p (cond 
+                          (clojure.core/and (= op 'and) (clojure.core/or (= p1 0) (= p2 0))) 0
+                          (clojure.core/and (= op 'and) (= p1 1) (= p2 1)) 1
+                          (clojure.core/and (= op 'and) (= p1 p2)) p1
+                          (clojure.core/and (= op 'or) (= p1 p2)) p1
+                          (clojure.core/and (= op 'or) (clojure.core/or (= p1 1) (= p2 1))) 1
+                          (clojure.core/and (= op 'or) (= p1 0)) p2
+                          (clojure.core/and (= op 'or) (= p2 0)) p1
+                          (clojure.core/and (= op 'xor) (= p1 p2)) 0
+                          (clojure.core/and (= op 'xor) (= p1 0)) p2
+                          (clojure.core/and (= op 'xor) (= p2 0)) p1
+                          :else (list op p1 p2))]]
+            p)
+          (for [op (intersection valid-ops op1),
+                p (enumerate-valid-programs (dec size) valid-ops symbols)
+                :let [p (if (clojure.core/and (= op 'not) (seq? p) (= 'not (first p))) ;eliminate (not (not ...))
+                          (second p)
+                          p)]]
+            (list op p))))))))
 
 (defn maybe-valid? [program inputs outputs]
   (every? true? (map #(= %2 (program %1)) inputs outputs)))
@@ -179,13 +198,16 @@
 
 (defn candidate-programs [{:keys [size operators id]}]
   (let [ops (set (map symbol operators)) _ (println "using ops" ops)
-        size (dec size)
-        programs (enumerate-valid-programs size ops ['x]) _ (def programs programs)
+        programs (apply concat (for [n (range 3 size)] (enumerate-valid-programs n ops ['x]))); _ (def programs programs)
         r (java.util.Random.)
         inputs (concat [0 1 2 3 4 0xFF 0xFFFFFFFF -1 0x0000aa0000aa0000
                 0x123456789abcdeff
-                -144115188075855872] (repeatedly 200 #(.nextLong r))) _ (def inputs inputs)
-        {:keys [status outputs message]} (eval {:id id :arguments (map #(java.lang.Long/toHexString %) inputs)}) _ (println outputs)
+                -144115188075855872
+                -65148
+                -9223372036854775808
+                0x0000000000000022] (repeatedly 240 #(.nextLong r))) _ (def inputs inputs)
+        {:keys [status outputs message]} (eval {:id id :arguments (map #(java.lang.Long/toHexString %) inputs)}) 
+        _ (println outputs)
         outputs (map hex-str->long outputs)] (println status message size ops #_(count programs)) (def outputs outputs) 
     (keep (fn [[text p]] (when (maybe-valid? p inputs outputs) text)) (pmap (juxt identity compile-program) programs))))
 
@@ -195,14 +217,23 @@
     (if (not-empty candidates)
       (do
         ;(println "there are" (count candidates) "candidates ")
+        (println "using program of size" (size p))
         ((juxt println guess) {:id (:id task) :program (str "(lambda (x) " p ")")}))
       candidates)))
 
+  (def pp clojure.pprint/pprint)
+  (defn e [] (agent-error poster-agent))
+  (defn restart [] (restart-agent poster-agent (sorted-set)))
+  
 (comment
-  (let [x (read-string "(lambda (x) (if0 x 1 0))")] 
-    (eval-program x 0))
+  
+  (def easy (filter #(clojure.core/and (<= (:size %) 11) (false? (:solved %)) (< 0 (:timeLeft %)) ) ps))
+
   (def ps (all-problems)) 
-  (def easy (filter #(clojure.core/and (= 8 (:size %)) (nil? (:solved %)) ) ps))
+  (def easy (sort-by (juxt size (comp count :operators)) 
+                     (filter #(clojure.core/and (<= (:size %) 13) 
+                                                (empty? (intersection #{"fold"} (set (:operators %)))) 
+                                                (nil? (:solved %)) ) ps)))
   (pp easy)
   
   (doseq [task easy] (println (try-to-solve task)) (flush))
